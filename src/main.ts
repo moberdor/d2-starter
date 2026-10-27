@@ -1,3 +1,11 @@
+type Point = { x: number; y: number };
+
+type Stroke = {
+  points: Point[];
+  color: string;
+  width: number;
+};
+
 const app = document.querySelector<HTMLElement>("#app")!;
 
 const heading = document.createElement("h1");
@@ -10,35 +18,42 @@ canvas.height = 256;
 app.append(heading, canvas);
 
 const ctx = canvas.getContext("2d")!;
-ctx.lineWidth = 3;
 ctx.lineCap = "round";
 
-let drawing = false;
-let lastX = 0;
-let lastY = 0;
+const strokes: Stroke[] = [];
+let currentStroke: Stroke | null = null;
 
 canvas.addEventListener("pointerdown", (e) => {
   if (e.button !== 0) return;
-  drawing = true;
-  lastX = e.offsetX;
-  lastY = e.offsetY;
+  currentStroke = {
+    points: [{ x: e.offsetX, y: e.offsetY }],
+    color: "black",
+    width: 3,
+  };
   canvas.setPointerCapture(e.pointerId);
 });
 
 canvas.addEventListener("pointermove", (e) => {
-  if (!drawing) return;
+  if (!currentStroke) return;
+  const last = currentStroke.points[currentStroke.points.length - 1];
+  const point = { x: e.offsetX, y: e.offsetY };
+  currentStroke.points.push(point);
+  ctx.strokeStyle = currentStroke.color;
+  ctx.lineWidth = currentStroke.width;
   ctx.beginPath();
-  ctx.moveTo(lastX, lastY);
-  ctx.lineTo(e.offsetX, e.offsetY);
+  ctx.moveTo(last.x, last.y);
+  ctx.lineTo(point.x, point.y);
   ctx.stroke();
-  lastX = e.offsetX;
-  lastY = e.offsetY;
 });
 
 canvas.addEventListener("pointerup", () => {
-  drawing = false;
+  if (!currentStroke) return;
+  if (currentStroke.points.length > 1) {
+    strokes.push(currentStroke);
+  }
+  currentStroke = null;
 });
 
 canvas.addEventListener("pointercancel", () => {
-  drawing = false;
+  currentStroke = null;
 });
