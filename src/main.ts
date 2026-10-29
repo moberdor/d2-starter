@@ -35,6 +35,16 @@ type StickerTool = {
 
 type Tool = MarkerTool | StickerTool;
 
+type DrawingDocument = {
+  commands: DrawingCommand[];
+  redoCommands: DrawingCommand[];
+};
+
+type InteractionState = {
+  selectedTool: Tool;
+  currentStroke: Stroke | null;
+};
+
 const tools: Tool[] = [
   {
     kind: "marker",
@@ -73,13 +83,37 @@ const tools: Tool[] = [
   },
 ];
 
-const commands: DrawingCommand[] = [];
-const redoCommands: DrawingCommand[] = [];
-const toolButtons = new Map<string, HTMLButtonElement>();
+const drawing: DrawingDocument = {
+  commands: [],
+  redoCommands: [],
+};
 
-let currentStroke: Stroke | null = null;
-let selectedTool: Tool = tools[0];
+const interaction: InteractionState = {
+  selectedTool: tools[0],
+  currentStroke: null,
+};
+
+const toolButtons = new Map<string, HTMLButtonElement>();
 let nextCustomToolId = 1;
+
+function commit(command: DrawingCommand) {
+  drawing.commands.push(command);
+  drawing.redoCommands.length = 0;
+}
+
+function undo() {
+  const command = drawing.commands.pop();
+  if (command) {
+    drawing.redoCommands.push(command);
+  }
+}
+
+function redo() {
+  const command = drawing.redoCommands.pop();
+  if (command) {
+    drawing.commands.push(command);
+  }
+}
 
 const app = document.querySelector<HTMLElement>("#app")!;
 
@@ -95,12 +129,13 @@ function updateToolButtons() {
     if (button) {
       button.setAttribute(
         "aria-pressed",
-        String(tool.id === selectedTool.id),
+        String(tool.id === interaction.selectedTool.id),
       );
     }
   }
 
-  selectedToolLabel.textContent = `Selected tool: ${selectedTool.label}`;
+  selectedToolLabel.textContent =
+    `Selected tool: ${interaction.selectedTool.label}`;
 }
 
 function addToolButton(tool: Tool) {
@@ -117,7 +152,7 @@ function addToolButton(tool: Tool) {
   button.style.padding = "0 12px";
 
   button.addEventListener("click", () => {
-    selectedTool = tool;
+    interaction.selectedTool = tool;
     updateToolButtons();
   });
 
@@ -171,11 +206,17 @@ redrawButton.addEventListener("click", redraw);
 
 const undoButton = document.createElement("button");
 undoButton.textContent = "Undo";
-undoButton.addEventListener("click", undo);
+undoButton.addEventListener("click", () => {
+  undo();
+  update();
+});
 
 const redoButton = document.createElement("button");
 redoButton.textContent = "Redo";
-redoButton.addEventListener("click", redo);
+redoButton.addEventListener("click", () => {
+  redo();
+  update();
+});
 
 const exportButton = document.createElement("button");
 exportButton.textContent = "Export PNG";
@@ -216,32 +257,11 @@ app.append(
 const ctx = canvas.getContext("2d")!;
 
 function updateHistoryControls() {
-  const gestureInProgress = currentStroke !== null;
+  const gestureInProgress = interaction.currentStroke !== null;
 
-  undoButton.disabled = gestureInProgress || commands.length === 0;
-  redoButton.disabled = gestureInProgress || redoCommands.length === 0;
-}
-
-function undo() {
-  if (currentStroke || commands.length === 0) return;
-
-  const command = commands.pop();
-  if (!command) return;
-
-  redoCommands.push(command);
-  updateHistoryControls();
-  redraw();
-}
-
-function redo() {
-  if (currentStroke || redoCommands.length === 0) return;
-
-  const command = redoCommands.pop();
-  if (!command) return;
-
-  commands.push(command);
-  updateHistoryControls();
-  redraw();
+  undoButton.disabled = gestureInProgress || drawing.commands.length === 0;
+  redoButton.disabled = gestureInProgress ||
+    drawing.redoCommands.length === 0;
 }
 
 function drawCommand(
@@ -285,16 +305,24 @@ function drawCommand(
   target.restore();
 }
 
+function drawDocument(target: CanvasRenderingContext2D) {
+  for (const command of drawing.commands) {
+    drawCommand(command, target);
+  }
+}
+
 function redraw() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
+  drawDocument(ctx);
 
-  for (const command of commands) {
-    drawCommand(command, ctx);
+  if (interaction.currentStroke) {
+    drawCommand(interaction.currentStroke, ctx);
   }
+}
 
-  if (currentStroke) {
-    drawCommand(currentStroke, ctx);
-  }
+function update() {
+  updateHistoryControls();
+  redraw();
 }
 
 function exportPng() {
@@ -310,10 +338,7 @@ function exportPng() {
   }
 
   exportContext.scale(scale, scale);
-
-  for (const command of commands) {
-    drawCommand(command, exportContext);
-  }
+  drawDocument(exportContext);
 
   exportCanvas.toBlob((blob) => {
     if (!blob) {
@@ -358,7 +383,7 @@ toolCreationForm.addEventListener("submit", (event) => {
   tools.push(newTool);
   addToolButton(newTool);
 
-  selectedTool = newTool;
+  interaction.selectedTool = newTool;
   updateToolButtons();
 
   toolCreationMessage.textContent = `Created ${name}.`;
@@ -381,38 +406,36 @@ canvas.addEventListener("pointerdown", (event) => {
 
   const x = event.offsetX;
   const y = event.offsetY;
+  const tool = interaction.selectedTool;
 
-  if (selectedTool.kind === "sticker") {
-    commands.push({
+  if (tool.kind === "sticker") {
+    commit({
       kind: "sticker",
       x,
       y,
-      text: selectedTool.text,
-      size: selectedTool.size,
+      text: tool.text,
+      size: tool.size,
     });
 
-    redoCommands.length = 0;
-    updateHistoryControls();
-    redraw();
+    update();
     return;
   }
 
-  currentStroke = {
+  interaction.currentStroke = {
     kind: "stroke",
     points: [{ x, y }],
-    color: selectedTool.color,
-    width: selectedTool.width,
+    color: tool.color,
+    width: tool.width,
   };
 
   canvas.setPointerCapture(event.pointerId);
-  updateHistoryControls();
-  redraw();
+  update();
 });
 
 canvas.addEventListener("pointermove", (event) => {
-  if (!currentStroke) return;
+  if (!interaction.currentStroke) return;
 
-  currentStroke.points.push({
+  interaction.currentStroke.points.push({
     x: event.offsetX,
     y: event.offsetY,
   });
@@ -421,22 +444,21 @@ canvas.addEventListener("pointermove", (event) => {
 });
 
 canvas.addEventListener("pointerup", () => {
-  if (!currentStroke) return;
+  const stroke = interaction.currentStroke;
+  if (!stroke) return;
 
-  if (currentStroke.points.length > 1) {
-    commands.push(currentStroke);
-    redoCommands.length = 0;
+  interaction.currentStroke = null;
+
+  if (stroke.points.length > 1) {
+    commit(stroke);
   }
 
-  currentStroke = null;
-  updateHistoryControls();
-  redraw();
+  update();
 });
 
 canvas.addEventListener("pointercancel", () => {
-  currentStroke = null;
-  updateHistoryControls();
-  redraw();
+  interaction.currentStroke = null;
+  update();
 });
 
 updateToolButtons();
