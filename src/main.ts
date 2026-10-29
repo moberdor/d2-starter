@@ -1,19 +1,128 @@
 type Point = { x: number; y: number };
 
 type Stroke = {
+  kind: "stroke";
   points: Point[];
   color: string;
   width: number;
 };
 
-const strokes: Stroke[] = [];
-const redoStrokes: Stroke[] = [];
+type Sticker = {
+  kind: "sticker";
+  x: number;
+  y: number;
+  text: string;
+  size: number;
+};
+
+type DrawingCommand = Stroke | Sticker;
+
+type MarkerTool = {
+  kind: "marker";
+  id: string;
+  label: string;
+  color: string;
+  width: number;
+};
+
+type StickerTool = {
+  kind: "sticker";
+  id: string;
+  label: string;
+  text: string;
+  size: number;
+};
+
+type Tool = MarkerTool | StickerTool;
+
+const tools: Tool[] = [
+  {
+    kind: "marker",
+    id: "thin-marker",
+    label: "Thin marker",
+    color: "#222222",
+    width: 2,
+  },
+  {
+    kind: "marker",
+    id: "thick-marker",
+    label: "Thick marker",
+    color: "#222222",
+    width: 7,
+  },
+  {
+    kind: "sticker",
+    id: "skull",
+    label: "💀 Skull",
+    text: "💀",
+    size: 32,
+  },
+  {
+    kind: "sticker",
+    id: "heart",
+    label: "❤️ Heart",
+    text: "❤️",
+    size: 32,
+  },
+  {
+    kind: "sticker",
+    id: "shark",
+    label: "🦈 Shark",
+    text: "🦈",
+    size: 32,
+  },
+];
+
+const commands: DrawingCommand[] = [];
+const redoCommands: DrawingCommand[] = [];
+const toolButtons = new Map<string, HTMLButtonElement>();
+
 let currentStroke: Stroke | null = null;
+let selectedTool: Tool = tools[0];
 
 const app = document.querySelector<HTMLElement>("#app")!;
 
 const heading = document.createElement("h1");
 heading.textContent = "Sketchpad";
+
+const palette = document.createElement("div");
+const selectedToolLabel = document.createElement("p");
+
+function updateToolButtons() {
+  for (const tool of tools) {
+    const button = toolButtons.get(tool.id);
+    if (button) {
+      button.setAttribute(
+        "aria-pressed",
+        String(tool.id === selectedTool.id),
+      );
+    }
+  }
+
+  selectedToolLabel.textContent = `Selected tool: ${selectedTool.label}`;
+}
+
+for (const tool of tools) {
+  const button = document.createElement("button");
+  button.textContent = tool.label;
+  button.setAttribute("aria-pressed", "false");
+
+  button.style.height = "24px";
+  button.style.boxSizing = "border-box";
+  button.style.display = "inline-flex";
+  button.style.alignItems = "center";
+  button.style.justifyContent = "center";
+  button.style.lineHeight = "1.2";
+  button.style.padding = "0 12px";
+
+  button.addEventListener("click", () => {
+    selectedTool = tool;
+    updateToolButtons();
+  });
+
+  toolButtons.set(tool.id, button);
+  palette.append(button);
+}
 
 const redrawButton = document.createElement("button");
 redrawButton.textContent = "Redraw";
@@ -33,83 +142,96 @@ clearPixelsButton.textContent = "Clear pixels (test)";
 const canvas = document.createElement("canvas");
 canvas.width = 256;
 canvas.height = 256;
+canvas.style.display = "block";
+canvas.style.border = "1px solid #333";
+canvas.style.touchAction = "none";
 
 const controls = document.createElement("div");
 controls.append(clearPixelsButton, redrawButton, undoButton, redoButton);
 
-canvas.style.display = "block";
-canvas.style.border = "1px solid #333";
-app.append(heading, canvas, controls);
+app.append(heading, palette, selectedToolLabel, canvas, controls);
 
 const ctx = canvas.getContext("2d")!;
-ctx.lineCap = "round";
 
 function updateHistoryControls() {
   const gestureInProgress = currentStroke !== null;
 
-  undoButton.disabled = gestureInProgress || strokes.length === 0;
-  redoButton.disabled = gestureInProgress || redoStrokes.length === 0;
+  undoButton.disabled = gestureInProgress || commands.length === 0;
+  redoButton.disabled = gestureInProgress || redoCommands.length === 0;
 }
 
 function undo() {
-  if (currentStroke || strokes.length === 0) return;
+  if (currentStroke || commands.length === 0) return;
 
-  const stroke = strokes.pop();
-  if (!stroke) return;
+  const command = commands.pop();
+  if (!command) return;
 
-  redoStrokes.push(stroke);
+  redoCommands.push(command);
   updateHistoryControls();
   redraw();
 }
 
 function redo() {
-  if (currentStroke || redoStrokes.length === 0) return;
+  if (currentStroke || redoCommands.length === 0) return;
 
-  const stroke = redoStrokes.pop();
-  if (!stroke) return;
+  const command = redoCommands.pop();
+  if (!command) return;
 
-  strokes.push(stroke);
+  commands.push(command);
   updateHistoryControls();
   redraw();
 }
 
-function drawStroke(stroke: Stroke) {
-  if (stroke.points.length === 0) return;
+function drawCommand(
+  command: DrawingCommand,
+  target: CanvasRenderingContext2D,
+) {
+  target.save();
 
-  ctx.save();
-  ctx.strokeStyle = stroke.color;
-  ctx.lineWidth = stroke.width;
-  ctx.lineCap = "round";
-  ctx.lineJoin = "round";
+  if (command.kind === "stroke") {
+    if (command.points.length === 0) {
+      target.restore();
+      return;
+    }
 
-  ctx.beginPath();
+    target.strokeStyle = command.color;
+    target.lineWidth = command.width;
+    target.lineCap = "round";
+    target.lineJoin = "round";
+    target.beginPath();
 
-  const first = stroke.points[0];
-  ctx.moveTo(first.x, first.y);
+    const first = command.points[0];
+    target.moveTo(first.x, first.y);
 
-  for (let i = 1; i < stroke.points.length; i++) {
-    const point = stroke.points[i];
-    ctx.lineTo(point.x, point.y);
+    for (let i = 1; i < command.points.length; i++) {
+      const point = command.points[i];
+      target.lineTo(point.x, point.y);
+    }
+
+    if (command.points.length === 1) {
+      target.lineTo(first.x, first.y);
+    }
+
+    target.stroke();
+  } else {
+    target.font = `${command.size}px sans-serif`;
+    target.textAlign = "center";
+    target.textBaseline = "middle";
+    target.fillText(command.text, command.x, command.y);
   }
 
-  if (stroke.points.length === 1) {
-    ctx.lineTo(first.x, first.y);
-  }
-
-  ctx.stroke();
-  ctx.restore();
+  target.restore();
 }
 
-// Step 3 choice: explicit update call for redraw.
 function redraw() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  for (const stroke of strokes) {
-    drawStroke(stroke);
+  for (const command of commands) {
+    drawCommand(command, ctx);
   }
 
   if (currentStroke) {
-    drawStroke(currentStroke);
+    drawCommand(currentStroke, ctx);
   }
 }
 
@@ -117,25 +239,46 @@ clearPixelsButton.addEventListener("click", () => {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 });
 
-canvas.addEventListener("pointerdown", (e) => {
-  if (e.button !== 0) return;
+canvas.addEventListener("pointerdown", (event) => {
+  if (event.button !== 0) return;
+
+  const x = event.offsetX;
+  const y = event.offsetY;
+
+  if (selectedTool.kind === "sticker") {
+    commands.push({
+      kind: "sticker",
+      x,
+      y,
+      text: selectedTool.text,
+      size: selectedTool.size,
+    });
+
+    redoCommands.length = 0;
+    updateHistoryControls();
+    redraw();
+    return;
+  }
 
   currentStroke = {
-    points: [{ x: e.offsetX, y: e.offsetY }],
-    color: "black",
-    width: 3,
+    kind: "stroke",
+    points: [{ x, y }],
+    color: selectedTool.color,
+    width: selectedTool.width,
   };
 
-  canvas.setPointerCapture(e.pointerId);
+  canvas.setPointerCapture(event.pointerId);
   updateHistoryControls();
   redraw();
 });
 
-canvas.addEventListener("pointermove", (e) => {
+canvas.addEventListener("pointermove", (event) => {
   if (!currentStroke) return;
 
-  const point = { x: e.offsetX, y: e.offsetY };
-  currentStroke.points.push(point);
+  currentStroke.points.push({
+    x: event.offsetX,
+    y: event.offsetY,
+  });
 
   redraw();
 });
@@ -144,8 +287,8 @@ canvas.addEventListener("pointerup", () => {
   if (!currentStroke) return;
 
   if (currentStroke.points.length > 1) {
-    strokes.push(currentStroke);
-    redoStrokes.length = 0;
+    commands.push(currentStroke);
+    redoCommands.length = 0;
   }
 
   currentStroke = null;
@@ -159,4 +302,5 @@ canvas.addEventListener("pointercancel", () => {
   redraw();
 });
 
+updateToolButtons();
 updateHistoryControls();
