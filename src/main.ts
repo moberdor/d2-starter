@@ -79,6 +79,7 @@ const toolButtons = new Map<string, HTMLButtonElement>();
 
 let currentStroke: Stroke | null = null;
 let selectedTool: Tool = tools[0];
+let nextCustomToolId = 1;
 
 const app = document.querySelector<HTMLElement>("#app")!;
 
@@ -102,7 +103,7 @@ function updateToolButtons() {
   selectedToolLabel.textContent = `Selected tool: ${selectedTool.label}`;
 }
 
-for (const tool of tools) {
+function addToolButton(tool: Tool) {
   const button = document.createElement("button");
   button.textContent = tool.label;
   button.setAttribute("aria-pressed", "false");
@@ -123,6 +124,46 @@ for (const tool of tools) {
   toolButtons.set(tool.id, button);
   palette.append(button);
 }
+
+for (const tool of tools) {
+  addToolButton(tool);
+}
+
+const toolCreationForm = document.createElement("form");
+
+const nameLabel = document.createElement("label");
+nameLabel.textContent = "Tool name ";
+const nameInput = document.createElement("input");
+nameInput.type = "text";
+nameInput.setAttribute("aria-label", "New tool name");
+nameLabel.append(nameInput);
+
+const textLabel = document.createElement("label");
+textLabel.textContent = " Emoji or short text ";
+const textInput = document.createElement("input");
+textInput.type = "text";
+textInput.maxLength = 12;
+textInput.setAttribute("aria-label", "Emoji or short text");
+textLabel.append(textInput);
+
+const createToolSubmitButton = document.createElement("button");
+createToolSubmitButton.type = "submit";
+createToolSubmitButton.textContent = "Create sticker tool";
+
+const cancelToolButton = document.createElement("button");
+cancelToolButton.type = "button";
+cancelToolButton.textContent = "Cancel";
+
+const toolCreationMessage = document.createElement("p");
+toolCreationMessage.setAttribute("aria-live", "polite");
+
+toolCreationForm.append(
+  nameLabel,
+  textLabel,
+  createToolSubmitButton,
+  cancelToolButton,
+  toolCreationMessage,
+);
 
 const redrawButton = document.createElement("button");
 redrawButton.textContent = "Redraw";
@@ -149,7 +190,14 @@ canvas.style.touchAction = "none";
 const controls = document.createElement("div");
 controls.append(clearPixelsButton, redrawButton, undoButton, redoButton);
 
-app.append(heading, palette, selectedToolLabel, canvas, controls);
+app.append(
+  heading,
+  palette,
+  selectedToolLabel,
+  toolCreationForm,
+  canvas,
+  controls,
+);
 
 const ctx = canvas.getContext("2d")!;
 
@@ -234,6 +282,44 @@ function redraw() {
     drawCommand(currentStroke, ctx);
   }
 }
+
+toolCreationForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+
+  const name = nameInput.value.trim();
+  const text = textInput.value.trim();
+
+  if (!name || !text) {
+    toolCreationMessage.textContent =
+      "Enter both a tool name and emoji or short text.";
+    return;
+  }
+
+  const newTool: StickerTool = {
+    kind: "sticker",
+    id: `custom-${nextCustomToolId}`,
+    label: `${name} ${text}`,
+    text,
+    size: 32,
+  };
+
+  nextCustomToolId++;
+  tools.push(newTool);
+  addToolButton(newTool);
+
+  selectedTool = newTool;
+  updateToolButtons();
+
+  toolCreationMessage.textContent = `Created ${name}.`;
+  nameInput.value = "";
+  textInput.value = "";
+});
+
+cancelToolButton.addEventListener("click", () => {
+  nameInput.value = "";
+  textInput.value = "";
+  toolCreationMessage.textContent = "";
+});
 
 clearPixelsButton.addEventListener("click", () => {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
