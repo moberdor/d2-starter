@@ -177,6 +177,13 @@ const redoButton = document.createElement("button");
 redoButton.textContent = "Redo";
 redoButton.addEventListener("click", redo);
 
+const exportButton = document.createElement("button");
+exportButton.textContent = "Export PNG";
+exportButton.addEventListener("click", exportPng);
+
+const exportMessage = document.createElement("p");
+exportMessage.setAttribute("aria-live", "polite");
+
 const clearPixelsButton = document.createElement("button");
 clearPixelsButton.textContent = "Clear pixels (test)";
 
@@ -188,7 +195,13 @@ canvas.style.border = "1px solid #333";
 canvas.style.touchAction = "none";
 
 const controls = document.createElement("div");
-controls.append(clearPixelsButton, redrawButton, undoButton, redoButton);
+controls.append(
+  clearPixelsButton,
+  redrawButton,
+  undoButton,
+  redoButton,
+  exportButton,
+);
 
 app.append(
   heading,
@@ -197,6 +210,7 @@ app.append(
   toolCreationForm,
   canvas,
   controls,
+  exportMessage,
 );
 
 const ctx = canvas.getContext("2d")!;
@@ -281,6 +295,43 @@ function redraw() {
   if (currentStroke) {
     drawCommand(currentStroke, ctx);
   }
+}
+
+function exportPng() {
+  const scale = 2;
+  const exportCanvas = document.createElement("canvas");
+  exportCanvas.width = canvas.width * scale;
+  exportCanvas.height = canvas.height * scale;
+
+  const exportContext = exportCanvas.getContext("2d");
+  if (!exportContext) {
+    exportMessage.textContent = "Could not create the export canvas.";
+    return;
+  }
+
+  exportContext.scale(scale, scale);
+
+  for (const command of commands) {
+    drawCommand(command, exportContext);
+  }
+
+  exportCanvas.toBlob((blob) => {
+    if (!blob) {
+      exportMessage.textContent = "Could not create the PNG file.";
+      return;
+    }
+
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "sticker-sketchpad.png";
+    document.body.append(link);
+    link.click();
+    link.remove();
+
+    globalThis.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    exportMessage.textContent = "PNG exported.";
+  }, "image/png");
 }
 
 toolCreationForm.addEventListener("submit", (event) => {
