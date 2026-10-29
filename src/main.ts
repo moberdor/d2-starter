@@ -7,6 +7,7 @@ type Stroke = {
 };
 
 const strokes: Stroke[] = [];
+const redoStrokes: Stroke[] = [];
 let currentStroke: Stroke | null = null;
 
 const app = document.querySelector<HTMLElement>("#app")!;
@@ -18,6 +19,14 @@ const redrawButton = document.createElement("button");
 redrawButton.textContent = "Redraw";
 redrawButton.addEventListener("click", redraw);
 
+const undoButton = document.createElement("button");
+undoButton.textContent = "Undo";
+undoButton.addEventListener("click", undo);
+
+const redoButton = document.createElement("button");
+redoButton.textContent = "Redo";
+redoButton.addEventListener("click", redo);
+
 const clearPixelsButton = document.createElement("button");
 clearPixelsButton.textContent = "Clear pixels (test)";
 
@@ -26,7 +35,7 @@ canvas.width = 256;
 canvas.height = 256;
 
 const controls = document.createElement("div");
-controls.append(clearPixelsButton, redrawButton);
+controls.append(clearPixelsButton, redrawButton, undoButton, redoButton);
 
 canvas.style.display = "block";
 canvas.style.border = "1px solid #333";
@@ -34,6 +43,35 @@ app.append(heading, canvas, controls);
 
 const ctx = canvas.getContext("2d")!;
 ctx.lineCap = "round";
+
+function updateHistoryControls() {
+  const gestureInProgress = currentStroke !== null;
+
+  undoButton.disabled = gestureInProgress || strokes.length === 0;
+  redoButton.disabled = gestureInProgress || redoStrokes.length === 0;
+}
+
+function undo() {
+  if (currentStroke || strokes.length === 0) return;
+
+  const stroke = strokes.pop();
+  if (!stroke) return;
+
+  redoStrokes.push(stroke);
+  updateHistoryControls();
+  redraw();
+}
+
+function redo() {
+  if (currentStroke || redoStrokes.length === 0) return;
+
+  const stroke = redoStrokes.pop();
+  if (!stroke) return;
+
+  strokes.push(stroke);
+  updateHistoryControls();
+  redraw();
+}
 
 function drawStroke(stroke: Stroke) {
   if (stroke.points.length === 0) return;
@@ -62,7 +100,7 @@ function drawStroke(stroke: Stroke) {
   ctx.restore();
 }
 
-//(Step 3 choice made:) explicit update call for redraw
+// Step 3 choice: explicit update call for redraw.
 function redraw() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
@@ -81,12 +119,15 @@ clearPixelsButton.addEventListener("click", () => {
 
 canvas.addEventListener("pointerdown", (e) => {
   if (e.button !== 0) return;
+
   currentStroke = {
     points: [{ x: e.offsetX, y: e.offsetY }],
     color: "black",
     width: 3,
   };
+
   canvas.setPointerCapture(e.pointerId);
+  updateHistoryControls();
   redraw();
 });
 
@@ -101,14 +142,21 @@ canvas.addEventListener("pointermove", (e) => {
 
 canvas.addEventListener("pointerup", () => {
   if (!currentStroke) return;
+
   if (currentStroke.points.length > 1) {
     strokes.push(currentStroke);
+    redoStrokes.length = 0;
   }
+
   currentStroke = null;
+  updateHistoryControls();
   redraw();
 });
 
 canvas.addEventListener("pointercancel", () => {
   currentStroke = null;
+  updateHistoryControls();
   redraw();
 });
+
+updateHistoryControls();
