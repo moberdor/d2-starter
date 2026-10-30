@@ -45,41 +45,50 @@ type InteractionState = {
   currentStroke: Stroke | null;
 };
 
+const DEFAULT_STICKER_SIZE = 38;
+
 const tools: Tool[] = [
   {
     kind: "marker",
     id: "thin-marker",
     label: "Thin marker",
     color: "#222222",
-    width: 2,
+    width: 3,
   },
   {
     kind: "marker",
     id: "thick-marker",
     label: "Thick marker",
     color: "#222222",
-    width: 7,
+    width: 8,
   },
   {
     kind: "sticker",
     id: "skull",
     label: "💀 Skull",
     text: "💀",
-    size: 32,
+    size: DEFAULT_STICKER_SIZE,
   },
   {
     kind: "sticker",
     id: "heart",
     label: "❤️ Heart",
     text: "❤️",
-    size: 32,
+    size: DEFAULT_STICKER_SIZE,
   },
   {
     kind: "sticker",
     id: "shark",
     label: "🦈 Shark",
     text: "🦈",
-    size: 32,
+    size: DEFAULT_STICKER_SIZE,
+  },
+  {
+    kind: "sticker",
+    id: "star",
+    label: "⭐ Star",
+    text: "⭐",
+    size: DEFAULT_STICKER_SIZE,
   },
 ];
 
@@ -95,6 +104,24 @@ const interaction: InteractionState = {
 
 const toolButtons = new Map<string, HTMLButtonElement>();
 let nextCustomToolId = 1;
+
+function getPoint(event: PointerEvent): Point {
+  return { x: event.offsetX, y: event.offsetY };
+}
+
+function makeSticker(tool: StickerTool, at: Point): Sticker {
+  return {
+    kind: "sticker",
+    x: at.x,
+    y: at.y,
+    text: tool.text,
+    size: tool.size,
+  };
+}
+
+function startStroke(tool: MarkerTool, at: Point): Stroke {
+  return { kind: "stroke", points: [at], color: tool.color, width: tool.width };
+}
 
 function commit(command: DrawingCommand) {
   drawing.commands.push(command);
@@ -177,7 +204,7 @@ const textLabel = document.createElement("label");
 textLabel.textContent = " Emoji or short text ";
 const textInput = document.createElement("input");
 textInput.type = "text";
-textInput.maxLength = 12;
+textInput.maxLength = 10;
 textInput.setAttribute("aria-label", "Emoji or short text");
 textLabel.append(textInput);
 
@@ -264,44 +291,47 @@ function updateHistoryControls() {
     drawing.redoCommands.length === 0;
 }
 
+function drawStroke(stroke: Stroke, target: CanvasRenderingContext2D) {
+  if (stroke.points.length === 0) return;
+
+  target.strokeStyle = stroke.color;
+  target.lineWidth = stroke.width;
+  target.lineCap = "round";
+  target.lineJoin = "round";
+  target.beginPath();
+
+  const [first, ...rest] = stroke.points;
+  target.moveTo(first.x, first.y);
+  for (const point of rest) {
+    target.lineTo(point.x, point.y);
+  }
+  if (rest.length === 0) {
+    target.lineTo(first.x, first.y);
+  }
+
+  target.stroke();
+}
+
+function drawSticker(sticker: Sticker, target: CanvasRenderingContext2D) {
+  target.font = `${sticker.size}px sans-serif`;
+  target.textAlign = "center";
+  target.textBaseline = "middle";
+  target.fillText(sticker.text, sticker.x, sticker.y);
+}
+
 function drawCommand(
   command: DrawingCommand,
   target: CanvasRenderingContext2D,
 ) {
   target.save();
-
-  if (command.kind === "stroke") {
-    if (command.points.length === 0) {
-      target.restore();
-      return;
-    }
-
-    target.strokeStyle = command.color;
-    target.lineWidth = command.width;
-    target.lineCap = "round";
-    target.lineJoin = "round";
-    target.beginPath();
-
-    const first = command.points[0];
-    target.moveTo(first.x, first.y);
-
-    for (let i = 1; i < command.points.length; i++) {
-      const point = command.points[i];
-      target.lineTo(point.x, point.y);
-    }
-
-    if (command.points.length === 1) {
-      target.lineTo(first.x, first.y);
-    }
-
-    target.stroke();
-  } else {
-    target.font = `${command.size}px sans-serif`;
-    target.textAlign = "center";
-    target.textBaseline = "middle";
-    target.fillText(command.text, command.x, command.y);
+  switch (command.kind) {
+    case "stroke":
+      drawStroke(command, target);
+      break;
+    case "sticker":
+      drawSticker(command, target);
+      break;
   }
-
   target.restore();
 }
 
@@ -376,7 +406,7 @@ toolCreationForm.addEventListener("submit", (event) => {
     id: `custom-${nextCustomToolId}`,
     label: `${name} ${text}`,
     text,
-    size: 32,
+    size: DEFAULT_STICKER_SIZE,
   };
 
   nextCustomToolId++;
@@ -404,41 +434,23 @@ clearPixelsButton.addEventListener("click", () => {
 canvas.addEventListener("pointerdown", (event) => {
   if (event.button !== 0) return;
 
-  const x = event.offsetX;
-  const y = event.offsetY;
+  const at = getPoint(event);
   const tool = interaction.selectedTool;
 
   if (tool.kind === "sticker") {
-    commit({
-      kind: "sticker",
-      x,
-      y,
-      text: tool.text,
-      size: tool.size,
-    });
-
-    update();
-    return;
+    commit(makeSticker(tool, at));
+  } else {
+    interaction.currentStroke = startStroke(tool, at);
+    canvas.setPointerCapture(event.pointerId);
   }
 
-  interaction.currentStroke = {
-    kind: "stroke",
-    points: [{ x, y }],
-    color: tool.color,
-    width: tool.width,
-  };
-
-  canvas.setPointerCapture(event.pointerId);
   update();
 });
 
 canvas.addEventListener("pointermove", (event) => {
   if (!interaction.currentStroke) return;
 
-  interaction.currentStroke.points.push({
-    x: event.offsetX,
-    y: event.offsetY,
-  });
+  interaction.currentStroke.points.push(getPoint(event));
 
   redraw();
 });
