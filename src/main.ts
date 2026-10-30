@@ -15,7 +15,11 @@ type Sticker = {
   size: number;
 };
 
-type DrawingCommand = Stroke | Sticker;
+type ClearCommand = {
+  kind: "clear";
+};
+
+type DrawingCommand = Stroke | Sticker | ClearCommand;
 
 type MarkerTool = {
   kind: "marker";
@@ -252,8 +256,23 @@ exportButton.addEventListener("click", exportPng);
 const exportMessage = document.createElement("p");
 exportMessage.setAttribute("aria-live", "polite");
 
+const clearButton = document.createElement("button");
+clearButton.textContent = "Clear";
+clearButton.addEventListener("click", () => {
+  if (interaction.currentStroke) return;
+
+  const last = drawing.commands[drawing.commands.length - 1];
+  if (!last || last.kind === "clear") return;
+
+  commit({ kind: "clear" });
+  update();
+});
+
 const clearPixelsButton = document.createElement("button");
 clearPixelsButton.textContent = "Clear pixels (test)";
+clearPixelsButton.addEventListener("click", () => {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+});
 
 const canvas = document.createElement("canvas");
 canvas.width = 256;
@@ -264,6 +283,7 @@ canvas.style.touchAction = "none";
 
 const controls = document.createElement("div");
 controls.append(
+  clearButton,
   clearPixelsButton,
   redrawButton,
   undoButton,
@@ -330,6 +350,10 @@ function drawCommand(
       break;
     case "sticker":
       drawSticker(command, target);
+      break;
+    case "clear":
+      target.setTransform(1, 0, 0, 1, 0, 0);
+      target.clearRect(0, 0, target.canvas.width, target.canvas.height);
       break;
   }
   target.restore();
@@ -425,10 +449,6 @@ cancelToolButton.addEventListener("click", () => {
   nameInput.value = "";
   textInput.value = "";
   toolCreationMessage.textContent = "";
-});
-
-clearPixelsButton.addEventListener("click", () => {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
 });
 
 canvas.addEventListener("pointerdown", (event) => {
