@@ -5,6 +5,7 @@ type Stroke = {
   points: Point[];
   color: string;
   width: number;
+  draw(target: CanvasRenderingContext2D): void;
 };
 
 type Sticker = {
@@ -13,10 +14,12 @@ type Sticker = {
   y: number;
   text: string;
   size: number;
+  draw(target: CanvasRenderingContext2D): void;
 };
 
 type ClearCommand = {
   kind: "clear";
+  draw(target: CanvasRenderingContext2D): void;
 };
 
 type DrawingCommand = Stroke | Sticker | ClearCommand;
@@ -120,11 +123,32 @@ function makeSticker(tool: StickerTool, at: Point): Sticker {
     y: at.y,
     text: tool.text,
     size: tool.size,
+    draw(target) {
+      drawSticker(this, target);
+    },
   };
 }
 
 function startStroke(tool: MarkerTool, at: Point): Stroke {
-  return { kind: "stroke", points: [at], color: tool.color, width: tool.width };
+  return {
+    kind: "stroke",
+    points: [at],
+    color: tool.color,
+    width: tool.width,
+    draw(target) {
+      drawStroke(this, target);
+    },
+  };
+}
+
+function makeClear(): ClearCommand {
+  return {
+    kind: "clear",
+    draw(target) {
+      target.setTransform(1, 0, 0, 1, 0, 0);
+      target.clearRect(0, 0, target.canvas.width, target.canvas.height);
+    },
+  };
 }
 
 function commit(command: DrawingCommand) {
@@ -264,7 +288,7 @@ clearButton.addEventListener("click", () => {
   const last = drawing.commands[drawing.commands.length - 1];
   if (!last || last.kind === "clear") return;
 
-  commit({ kind: "clear" });
+  commit(makeClear());
   update();
 });
 
@@ -344,18 +368,7 @@ function drawCommand(
   target: CanvasRenderingContext2D,
 ) {
   target.save();
-  switch (command.kind) {
-    case "stroke":
-      drawStroke(command, target);
-      break;
-    case "sticker":
-      drawSticker(command, target);
-      break;
-    case "clear":
-      target.setTransform(1, 0, 0, 1, 0, 0);
-      target.clearRect(0, 0, target.canvas.width, target.canvas.height);
-      break;
-  }
+  command.draw(target);
   target.restore();
 }
 
@@ -481,14 +494,18 @@ canvas.addEventListener("pointerup", () => {
 
   interaction.currentStroke = null;
 
-  if (stroke.points.length > 1) {
-    commit(stroke);
-  }
+  commit(stroke);
 
   update();
 });
 
 canvas.addEventListener("pointercancel", () => {
+  interaction.currentStroke = null;
+  update();
+});
+
+canvas.addEventListener("lostpointercapture", () => {
+  if (!interaction.currentStroke) return;
   interaction.currentStroke = null;
   update();
 });
